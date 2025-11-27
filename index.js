@@ -12,7 +12,7 @@ const CONFIG = {
     OWNER_CHAT_ID: "6762786795",
     
     // 🛑 ඔබේ අලුත්ම Gemini API Key එක
-    GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA",
+    GEMINI_API_KEY: "AIzaSyB2g730Cnuove9jO2CVBizrUcXKo-cIOWs",
     
     // Telegram API Endpoint Base URL එක
     TELEGRAM_API_BASE: `https://api.telegram.org/bot5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q`,
