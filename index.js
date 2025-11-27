@@ -6,7 +6,7 @@ const CONFIG = {
     TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q",
     
     // 🛑 ඔබේ Channel/Group Chat ID එක (Scheduled Post සඳහා)
-    TELEGRAM_CHAT_ID: "1901997764",
+    TELEGRAM_CHAT_ID: "1901997764", // OWNER_CHAT_ID එක ලෙසම තිබිය යුතුය
     
     // 🛑 ඔබේ පුද්ගලික Chat ID එක (Rate Limit අදාළ නොවන Owner ID)
     OWNER_CHAT_ID: "6762786795",
@@ -69,7 +69,7 @@ async function generateReplyContent(userQuestion) {
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
     const systemPrompt = `
-        You are a detailed, expert financial and trading assistant. A user has asked you a specific question about a trading concept (e.g., Order Flow, Liquidity).
+        You are a detailed, expert financial and trading assistant. A user has asked you a specific question.
         
         Your task is to:
         1. Use the 'google_search' tool to get the most accurate and educational information for the user's question.
@@ -109,51 +109,8 @@ async function generateReplyContent(userQuestion) {
     }
 }
 
-// C. Gemini API call for Trading Topic Validation (Bug Fix V2.0 Applied)
-async function validateTopic(userQuestion) {
-    const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
-    
-    // 🛑 Bug Fix V2.0: සිංහල උදාහරණ සමඟ වර්ගීකරණය වැඩි දියුණු කරන ලදි
-    const systemPrompt = `
-        You are an AI classifier. Your task is to determine if the user's query, **WHICH IS IN SINHALA/SINGLISH**, is strictly related to **Trading, Finance, Investing, Cryptocurrency, Forex, or the Stock Market**.
-        
-        Examples of YES: 'Candlestick', 'Order Flow', 'SL', 'TP', 'Margin', 'Bitcoin', 'Forex', 'Stock Market', 'Futures', 'Liquidity', 'RSI', 'Support', 'Resistance'.
-        Examples of Sinhala/Singlish Trading YES: 'Candlestick කියන්නේ මොකද්ද', 'Order Flow', 'Liquidity ගැන කියන්න', 'RSI', 'Money Management'.
-        
-        If the query is directly related to any of these financial topics, respond ONLY with the word "YES".
-        If the query is about any other subject, respond ONLY with the word "NO".
-    `;
-    
-    try {
-        const response = await fetch(GEMINI_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ role: "user", parts: [{ text: userQuestion }] }],
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { temperature: 0.0 } // නිශ්චිත පිළිතුරක් සඳහා 0.0
-            }),
-        });
+// C. (පෙර තිබූ validateTopic ශ්‍රිතය ඉවත් කරන ලදි - Topic Validation දැන් අක්‍රියයි)
 
-        const data = await response.json();
-        
-        if (data.error) {
-            console.error("Validator API Error:", data.error);
-            // Validator එක Error වුණොත්, එය Trading Question එකක් ලෙස සලකන්න (Fail-safe)
-            return true; 
-        }
-        
-        const result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase();
-        
-        // Final Check: පිළිතුර YES නම් පමණක් YES ලෙස සලකන්න.
-        return result === 'YES';
-        
-    } catch (e) {
-        console.error("Validation Network Error:", e);
-        // ජාල දෝෂයක් ආවොත්, එය Trading Question එකක් ලෙස සලකන්න (Fail-safe)
-        return true; 
-    }
-}
 
 // --- 2. CORE TELEGRAM FUNCTIONS ---
 
@@ -359,52 +316,44 @@ async function handleWebhook(request, env) {
             if (text.startsWith('/')) {
                 const command = text.split(' ')[0].toLowerCase();
                 if (command === '/start' || command === '/help') {
-                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k witharai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
+                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
                     await sendTelegramReply(chatId, welcomeMessage, messageId);
                 }
                 return new Response('Command processed', { status: 200 });
             }
 
-            // --- TRADING QUESTION LOGIC ---
+            // --- TRADING QUESTION LOGIC (Topic Validation Removed) ---
             if (text.length > 5) {
                 
-                // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව
-                const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
-                const isTradingTopic = await validateTopic(text);
+                // 1. 🚦 Status Message
+                const validationMessageId = await sendTelegramReply(chatId, "🌐 *ප්‍රශ්නය සකස් කරමින්...*", messageId);
+                // Note: Topic validation (validateTopic function call) is removed. All queries proceed.
                 
-                if (isTradingTopic) {
+                // 2. 🛑 Rate Limit Check
+                const usageResult = await checkAndIncrementUsage(env, chatId);
+                
+                if (!usageResult.allowed) {
+                    const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Oyata unlimited access one nam,* ownerwa contact karanna:`;
                     
-                    // 2. 🛑 Rate Limit Check
-                    const usageResult = await checkAndIncrementUsage(env, chatId);
+                    const keyboard = [
+                        [{ text: "👑 Limit Eka Ain Kara Ganna (Contact Owner)", url: getOwnerContactLink() }]
+                    ];
                     
-                    if (!usageResult.allowed) {
-                        const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Oyata unlimited access one nam,* ownerwa contact karanna:`;
-                        
-                        const keyboard = [
-                            [{ text: "👑 Limit Eka Ain Kara Ganna (Contact Owner)", url: getOwnerContactLink() }]
-                        ];
-                        
-                        await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
-                        return new Response('Rate limited with inline button', { status: 200 });
-                    }
-                    
-                    // 3. 🌐 Searching Status
-                    await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
-                    
-                    // 4. 🧠 Generation Status
-                    await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
-                    
-                    // 5. 🔗 Final Content Generation
-                    const replyText = await generateReplyContent(text);
-                    
-                    // 6. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
-                    await editTelegramMessage(chatId, validationMessageId, replyText);
-                    
-                } else {
-                    // Not a Trading Question - Guardrail Message 
-                    const guardrailMessage = `⚠️ *Sorry! Mama program karala thiyenne **Trading, Finance, nathnam Crypto** related questions walata witharak answer karanna.* \n\n*Oyage Chat ID eka:* \`${chatId}\`\n\nPlease ask karanna: 'What is RSI?' wage ekak. *Anith ewa mata denuma naha.* 😔`;
-                    await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
+                    await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
+                    return new Response('Rate limited with inline button', { status: 200 });
                 }
+                
+                // 3. 🌐 Searching Status
+                await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
+                
+                // 4. 🧠 Generation Status
+                await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
+                
+                // 5. 🔗 Final Content Generation
+                const replyText = await generateReplyContent(text);
+                
+                // 6. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
+                await editTelegramMessage(chatId, validationMessageId, replyText);
             }
         }
     } catch (e) {
