@@ -1,10 +1,8 @@
 // =================================================================
-// === src/trading-logic.js (FINAL VERSION - with FB, IG, Secret, and Fixes) ===
+// === src/trading-logic.js (FINAL VERSION - ALL TOPICS ENABLED) ===
 // =================================================================
 
-// --- 0. CONFIGURATION (පෙර තිබූ Hardcoded අගයන්) ---
-// ⚠️ මෙම අගයන් ඔබගේ Telegram Bot එකට අදාළ වන පරිදි සකසා ඇත. ⚠️
-
+// --- 0. CONFIGURATION (Non-Secret IDs) ---
 const CONFIG = {
     // 🛑 ඔබේ Bot Token එක
     TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
@@ -28,7 +26,7 @@ async function generateScheduledContent(env) {
     // 🔑 Key එක env object එකෙන් ලබා ගනී (Secret භාවිතය)
     const GEMINI_API_KEY = env.GEMINI_API_KEY; 
     if (!GEMINI_API_KEY) {
-        console.error("GEMINI_API_KEY is not set in Cloudflare Secrets.");
+        console.error("GEMINI_API_KEY is not set in Cloudflare Secrets. Cannot generate content.");
         return null;
     }
     
@@ -71,7 +69,7 @@ async function generateScheduledContent(env) {
         
         if (content) {
             // 3. Topic එක අලුතින් Post කළ Topics ලැයිස්තුවට එකතු කිරීම
-            const newTopicMatch = content.match(/\*([^*]+)\*/); // පළමු බෝල්ඩ් කර ඇති මාතෘකාව ලබා ගනී
+            const newTopicMatch = content.match(/\*([^*]+)\*/); 
             const newTopic = newTopicMatch ? newTopicMatch[1].trim() : "Untitled Post";
             
             coveredTopics.push(newTopic);
@@ -102,17 +100,18 @@ async function generateReplyContent(env, userQuestion) {
     
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     
+    // 🛑 System Prompt එක වෙනස් කර ඇත - ඕනෑම ප්‍රශ්නයකට පිළිතුරු දීමට
     const systemPrompt = `
-        You are a detailed, expert financial and trading assistant. A user has asked you a specific question or a short trading concept (e.g., RSI, Order Flow, Slippage).
+        You are a helpful and detailed AI assistant. A user has asked you a question about any subject.
         
         Your task is to:
         1. Use the 'google_search' tool to get the most accurate and educational information for the user's question.
-        2. Generate a **DETAILED, EDUCATIONAL RESPONSE**. The response must be **5 PARAGRAPHS** long to cover the concept fully (Definition, Importance, How to Use, Examples, and Summary).
-        3. Use **clear SINHALA language (සිංහල අක්ෂර / Unicode)** mixed with necessary English trading terms throughout the response.
+        2. Generate a **DETAILED, EDUCATIONAL RESPONSE**. The response should be well-structured, ideally around 5-7 paragraphs, covering the concept fully (Definition, Importance/Context, Examples, and Summary).
+        3. Use **clear SINHALA language (සිංහල අක්ෂර / Unicode)** as the primary language, but mix in necessary English terms where appropriate for technical subjects.
         4. The response must be well-formatted using Telegram's **Markdown** (bolding key terms, using lists, and emojis).
-        5. The first line of the response MUST be a clear title based on the question (e.g., "*Order Flow Concept එක මොකද්ද?*").
+        5. The first line of the response MUST be a clear title based on the question (e.g., "*Solar System එක මොකද්ද?*").
 
-        Your final output must contain ONLY the content of the response. DO NOT include any English wrappers.
+        Your final output must contain ONLY the content of the response.
     `;
     
     try {
@@ -134,44 +133,7 @@ async function generateReplyContent(env, userQuestion) {
     }
 }
 
-async function validateTopic(env, userQuestion) {
-    // 🔑 Key එක env object එකෙන් ලබා ගනී (Secret භාවිතය)
-    const GEMINI_API_KEY = env.GEMINI_API_KEY; 
-    if (!GEMINI_API_KEY) {
-        console.error("GEMINI_API_KEY is missing for validation.");
-        return true; 
-    }
-    
-    const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-    
-    const systemPrompt = `
-        You are an AI classifier. Your task is to determine if the user's query is strictly related to **Trading, Finance, Investing, Cryptocurrency, Forex, or the Stock Market**.
-        
-        If the query is directly related to any of these financial topics, respond ONLY with the word "YES".
-        If the query is about any other subject (general knowledge, politics, sports, entertainment, personal advice, etc.), respond ONLY with the word "NO".
-    `;
-    
-    try {
-        const response = await fetch(GEMINI_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ role: "user", parts: [{ text: userQuestion }] }],
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { temperature: 0.1 } 
-            }),
-        });
-
-        const data = await response.json();
-        const result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase();
-        
-        return result === 'YES';
-        
-    } catch (e) {
-        console.error("Error validating topic:", e);
-        return true; 
-    }
-}
+// ❌ validateTopic function එක සම්පූර්ණයෙන්ම ඉවත් කර ඇත. ❌
 
 
 // --- 2. CORE TELEGRAM FUNCTIONS ---
@@ -590,7 +552,6 @@ async function sendInitialCountPost(env, ownerChatId) {
 
 async function handleWebhook(request, env) {
     try {
-        // FIX: request.json() call එක මෙතනට ගෙන ඒම (පෙර දෝෂය නිවැරදි කරයි)
         const update = await request.json(); 
         
         if (update && update.callback_query) {
@@ -610,7 +571,6 @@ async function handleWebhook(request, env) {
 
             // --- NEW: Owner Command to Send Initial Count Post ---
             if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/send_count_post')) {
-                // Fix: Owner Chat ID එක යැවීම
                 const result = await sendInitialCountPost(env, chatId); 
                 await sendTelegramReply(chatId, result.message, messageId);
                 return new Response('Count post command processed', { status: 200 });
@@ -644,78 +604,64 @@ async function handleWebhook(request, env) {
                 if (command === '/start') {
                     await updateAndEditUserCount(env, userId);
                     
-                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
+                    const welcomeMessage = "👋 *Welcome to the General Assistant Bot!* \n\nදැන් මට ඕනෑම ප්‍රශ්නයකට (Trading, Science, History, etc.) පිළිතුරු දිය හැක. \n\n*Limit:* දවසකට *ප්‍රශ්න 5* කට සීමා කර ඇත. (Owner ට Unlimited). \n\nඋත්සාහ කරන්න: 'Solar System එක මොකද්ද?' වගේ ප්‍රශ්නයක් අහන්න.";
                     await sendTelegramReply(chatId, welcomeMessage, messageId);
 
                 } else if (command === '/help') {
-                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
-                    await sendTelegramReply(chatId, welcomeMessage, messageId);
+                    const helpMessage = "👋 *Welcome to the General Assistant Bot!* \n\nමම Trading, Science, History, හෝ වෙනත් ඕනෑම මාතෘකාවක් සම්බන්ධයෙන් ඔබට උපකාර කිරීමට සූදානම්. \n\n*Limit:* දවසකට *ප්‍රශ්න 5* කට සීමා කර ඇත. (Owner ට Unlimited).";
+                    await sendTelegramReply(chatId, helpMessage, messageId);
                 }
                 return new Response('Command processed', { status: 200 });
             }
 
-            // --- TRADING QUESTION LOGIC ---
+            // --- GENERAL QUESTION LOGIC (NO TRADING VALIDATION) ---
             
-            // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව 
-            const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
-            // env object එක validateTopic function එකට යැවීම
-            const isTradingTopic = await validateTopic(env, text); 
+            // 1. 🛑 Rate Limit Check
+            const usageResult = await checkAndIncrementUsage(env, chatId);
             
-            if (isTradingTopic) {
+            // 2. 🚦 Status Message - ආරම්භක පණිවිඩය
+            const initialMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය සකස් කරමින්...* (Checking limit)", messageId);
+            
+            if (!usageResult.allowed) {
+                // Rate Limit ඉක්මවා ඇත්නම්
+                const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **ප්‍රශ්න 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Owner ge Approval one nam, Request karanna!*`;
                 
-                // 2. 🛑 Rate Limit Check
-                const usageResult = await checkAndIncrementUsage(env, chatId);
-                
-                if (!usageResult.allowed) {
-                    // Rate Limit ඉක්මවා ඇත්නම්
-                    const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Owner ge Approval one nam, Request karanna!*`;
-                    
-                    // KV එකේ User Request තොරතුරු ගබඩා කිරීම
-                    const requestId = `REQ_${generateRandomId()}`;
-                    const requestData = {
-                        userChatId: chatId,
-                        userMessageId: validationMessageId, 
-                        targetUserId: userId,
-                        userFirstName: userFirstName,
-                        userName: userName
-                    };
-                    // Request එක පැය 24ක් සඳහා ගබඩා කිරීම
-                    await env.POST_STATUS_KV.put(`UNLIMIT_REQUEST_${requestId}`, JSON.stringify(requestData), { expirationTtl: 86400 });
+                // KV එකේ User Request තොරතුරු ගබඩා කිරීම
+                const requestId = `REQ_${generateRandomId()}`;
+                const requestData = {
+                    userChatId: chatId,
+                    userMessageId: initialMessageId, 
+                    targetUserId: userId,
+                    userFirstName: userFirstName,
+                    userName: userName
+                };
+                await env.POST_STATUS_KV.put(`UNLIMIT_REQUEST_${requestId}`, JSON.stringify(requestData), { expirationTtl: 86400 });
 
-                    // Button එකට යවන්නේ KV Key එක පමණයි
-                    const keyboard = [
-                        [{ text: "👑 Request Owner Approval", callback_data: `REQUEST_UNLIMIT_${requestId}` }]
-                    ];
-                    
-                    await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
-                    return new Response('Rate limited with inline request button', { status: 200 });
-                }
+                const keyboard = [
+                    [{ text: "👑 Request Owner Approval", callback_data: `REQUEST_UNLIMIT_${requestId}` }]
+                ];
                 
-                // 3. 🌐 Searching Status 
-                await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
-                
-                // 4. 🧠 Generation Status 
-                await sendTypingAction(chatId); 
-                await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
-                
-                // 5. 🔗 Final Content Generation
-                // env object එක generateReplyContent function එකට යැවීම
-                const replyText = await generateReplyContent(env, text);
-                
-                // 6. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
-                await editTelegramMessage(chatId, validationMessageId, replyText);
-                
-            } else {
-                // Not a Trading Question - Guardrail Message 
-                const guardrailMessage = `⚠️ *Sorry! Mama program karala thiyenne **Trading, Finance, nathnam Crypto** related questions walata witharak answer karanna.* \n\n*Oyage Chat ID eka:* \`${chatId}\`\n\nPlease ask karanna: 'What is RSI?' wage ekak. *Anith ewa mata denuma naha.* 😔`;
-                await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
+                await editTelegramMessageWithKeyboard(chatId, initialMessageId, limitMessage, keyboard);
+                return new Response('Rate limited with inline request button', { status: 200 });
             }
             
+            // 3. 🌐 Searching Status 
+            await editTelegramMessage(chatId, initialMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
+            
+            // 4. 🧠 Generation Status 
+            await sendTypingAction(chatId); 
+            await editTelegramMessage(chatId, initialMessageId, "✍️ *විස්තරාත්මක පිළිතුරක් සකස් කරමින්...* (Generating detailed reply)");
+            
+            // 5. 🔗 Final Content Generation
+            const replyText = await generateReplyContent(env, text);
+            
+            // 6. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
+            await editTelegramMessage(chatId, initialMessageId, replyText);
+            
+            return new Response('General question processed', { status: 200 });
         }
     } catch (e) {
-        // FIX: Error handling logs
         console.error("Error processing webhook:", e.message);
-        // මෙම දෝෂය ඔබගේ Cloudflare Log එකේ ඇති TypeError එකට පිළිතුරකි.
         return new Response(`Error processing webhook: ${e.message}`, { status: 500 });
     }
     
@@ -908,7 +854,7 @@ export default {
                 await sendTelegramReplyToOwner(`❌ Scheduled Daily Post එක අද දින (${today}) යැවීම අසාර්ථක විය. (Check logs)`);
             }
 
-            // 🛑 Facebook Post Failed නම්, Owner ට දැනුම් දෙන්න.
+            // Facebook Post Failed නම්, Owner ට දැනුම් දෙන්න.
             if (!fbSuccess) {
                  await sendTelegramReplyToOwner(`⚠️ Scheduled Daily Post එක Facebook/Instagram වෙත යැවීම අසාර්ථක විය. (Check logs)`);
             }
@@ -924,20 +870,25 @@ export default {
                  const postContent = await generateScheduledContent(env);
                  if (postContent) {
                     const success = await sendTelegramMessage(postContent); 
-                    // Manual Trigger එකේදී Facebook Post එක යවන්නේ නැත (Testing පහසුව සඳහා)
+                    
+                    // 🛑 Facebook Post එක යැවීම
+                    const fbSuccess = await sendFacebookPost(env, postContent); 
+                    
+                    let statusMessage = '✅ Manual Daily Post Triggered Successfully (Telegram';
+                    statusMessage += fbSuccess ? ' and Facebook).' : ' but Facebook Post Failed).';
+
                     if (success) {
-                        return new Response('✅ Manual Daily Post Triggered Successfully.', { status: 200 });
+                        return new Response(statusMessage, { status: 200 });
                     }
                     return new Response('❌ Manual Daily Post Failed to Send to Telegram. (Check logs)', { status: 500 });
                  }
-                 return new Response('❌ Manual Daily Post Failed: Content Generation Failed. (Check logs)', { status: 500 });
+                 return new Response('❌ Manual Daily Post Failed: Content Generation Failed. (Check logs - Check GEMINI_API_KEY Secret!)', { status: 500 });
             } catch (e) {
                  return new Response(`Error in Manual Trigger: ${e.message}`, { status: 500 });
             }
         }
 
         if (request.method === 'POST') {
-            // handleWebhook function එකට request සහ env දෙකම යවනු ලබයි
             return handleWebhook(request, env);
         }
         
