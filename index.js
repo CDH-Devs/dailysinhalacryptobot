@@ -1,20 +1,24 @@
-// --- 0. CONFIGURATION (Keys සහ IDs සෘජුවම කේතයේ - Insecure) ---
-// ⚠️ ඔබේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
+// =================================================================
+// === src/trading-logic.js (AI Q&A, Daily Post, and User/Owner Logic) ===
+// =================================================================
+
+// --- 0. CONFIGURATION (Keys සහ IDs සෘජුවම කේතයේ) ---
+// ⚠️ ඔබගේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
+// ⚠️ GEMINI_API_KEY එක Secret එකක් ලෙස සකසා ඇත. ⚠️
 
 const CONFIG = {
     // 🛑 ඔබේ Bot Token එක
-    TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q",
+    TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
     
     // 🛑 ඔබේ Channel/Group Chat ID එක (Scheduled Post සඳහා)
     TELEGRAM_CHAT_ID: "1901997764", // OWNER_CHAT_ID එක ලෙසම තිබිය යුතුය
     
     // 🛑 ඔබේ පුද්ගලික Chat ID එක (Rate Limit අදාළ නොවන Owner ID)
-    OWNER_CHAT_ID: "6762786795",
+    OWNER_CHAT_ID: "6762786795", 
     
-    // 🛑 ඔබේ අලුත්ම Gemini API Key එක
-    GEMINI_API_KEY: "AIzaSyDACg18fwe-yTZY8OvPykUhXGTQ13OfEkM",
+    // ❌ GEMINI_API_KEY එක මෙතනින් ඉවත් කර ඇත. එය env.GEMINI_API_KEY මඟින් ලබා ගනී.
     
-    // Telegram API Endpoint Base URL එක
+    // Telegram API Endpoint Base URL එක (Token එකෙන් සෑදී ඇත)
     TELEGRAM_API_BASE: `https://api.telegram.org/bot5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q`,
     
     // දිනකට උපරිම අවසර ලත් භාවිතය
@@ -23,13 +27,24 @@ const CONFIG = {
 
 // --- 1. CORE AI FUNCTIONS ---
 
-// A. Gemini API call for Daily Scheduled Posts
-async function generateScheduledContent(coveredTopics) {
-    const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
+/**
+ * Gemini API call for Daily Scheduled Posts.
+ * @param {object} env - The Cloudflare environment object (to access env.GEMINI_API_KEY)
+ */
+async function generateScheduledContent(env, coveredTopics) {
+    // 🔑 Key එක env object එකෙන් ලබා ගනී
+    const GEMINI_API_KEY = env.GEMINI_API_KEY; 
+    
+    // Key එක නොමැති නම් error එකක් දමයි
+    if (!GEMINI_API_KEY) {
+        console.error("GEMINI_API_KEY is not set in Cloudflare Secrets.");
+        return null;
+    }
+
+    const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     
     const excludedTopicsString = coveredTopics.join(', ');
     
-    // 🛑 සිංහල භාෂාව ඉල්ලීමට වෙනස් කරන ලදි
     const systemPrompt = `
         You are an expert financial and trading educator. Your primary goal is to provide daily, **step-by-step** foundational trading education for absolute beginners.
         The topics covered so far and MUST BE AVOIDED are: [${excludedTopicsString}].
@@ -60,13 +75,26 @@ async function generateScheduledContent(coveredTopics) {
         return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
 
     } catch (e) {
+        console.error("Error generating scheduled content:", e);
         return null;
     }
 }
 
-// B. Gemini API call for Live Chatbot Replies (Full Post Format)
-async function generateReplyContent(userQuestion) {
-    const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
+/**
+ * Gemini API call for Live Chatbot Replies.
+ * @param {object} env - The Cloudflare environment object (to access env.GEMINI_API_KEY)
+ */
+async function generateReplyContent(env, userQuestion) {
+    // 🔑 Key එක env object එකෙන් ලබා ගනී
+    const GEMINI_API_KEY = env.GEMINI_API_KEY; 
+    
+    // Key එක නොමැති නම් error එකක් දමයි
+    if (!GEMINI_API_KEY) {
+        console.error("GEMINI_API_KEY is not set in Cloudflare Secrets.");
+        return "🛑 *API Error:* Bot සකසා නොමැත. (Missing Gemini Key)";
+    }
+
+    const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     
     const systemPrompt = `
         You are a detailed, expert financial and trading assistant. A user has asked you a specific question.
@@ -95,7 +123,6 @@ async function generateReplyContent(userQuestion) {
 
         const data = await response.json();
         
-        // Error code check (Rate Limit, Invalid Key)
         if (data.error) {
              console.error("Gemini API Error:", data.error);
              return `🛑 *API Error:* ${data.error.message || 'මට පිළිතුරු දීමට නොහැකි විය. (Gemini API දෝෂයක්)'}`;
@@ -109,10 +136,8 @@ async function generateReplyContent(userQuestion) {
     }
 }
 
-// C. (පෙර තිබූ validateTopic ශ්‍රිතය ඉවත් කරන ලදි - Topic Validation දැන් අක්‍රියයි)
 
-
-// --- 2. CORE TELEGRAM FUNCTIONS ---
+// --- 2. CORE TELEGRAM FUNCTIONS (Unchanged) ---
 
 // D. Telegram API call (Send Text Message - Manual Post)
 async function sendTelegramMessage(caption) {
@@ -199,7 +224,7 @@ async function editTelegramMessageWithKeyboard(chatId, messageId, text, keyboard
     }
 }
 
-// --- 3. HELPER FUNCTIONS ---
+// --- 3. HELPER FUNCTIONS (Unchanged) ---
 
 function extractTopicFromPost(postText) {
     if (!postText) return 'Unknown Topic';
@@ -261,8 +286,9 @@ async function runDailyPostWorkflow(env) {
         coveredTopics = ["Support and Resistance", "Candlesticks", "Money Management"];
     }
 
-    const postText = await generateScheduledContent(coveredTopics);
-    if (!postText) return { success: false, message: 'Failed to generate content via Gemini.' };
+    // 🔑 env object එක function එකට යවන ලදි
+    const postText = await generateScheduledContent(env, coveredTopics); 
+    if (!postText) return { success: false, message: 'Failed to generate content via Gemini. (Check logs for Missing Key)' };
     
     const postSuccess = await sendTelegramMessage(postText);
 
@@ -322,12 +348,11 @@ async function handleWebhook(request, env) {
                 return new Response('Command processed', { status: 200 });
             }
 
-            // --- TRADING QUESTION LOGIC (Topic Validation Removed) ---
+            // --- TRADING QUESTION LOGIC ---
             if (text.length > 5) {
                 
                 // 1. 🚦 Status Message
                 const validationMessageId = await sendTelegramReply(chatId, "🌐 *ප්‍රශ්නය සකස් කරමින්...*", messageId);
-                // Note: Topic validation (validateTopic function call) is removed. All queries proceed.
                 
                 // 2. 🛑 Rate Limit Check
                 const usageResult = await checkAndIncrementUsage(env, chatId);
@@ -350,7 +375,8 @@ async function handleWebhook(request, env) {
                 await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
                 
                 // 5. 🔗 Final Content Generation
-                const replyText = await generateReplyContent(text);
+                // 🔑 env object එක function එකට යවන ලදි
+                const replyText = await generateReplyContent(env, text); 
                 
                 // 6. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
                 await editTelegramMessage(chatId, validationMessageId, replyText);
