@@ -1,17 +1,22 @@
 // =================================================================
-// === src/trading-logic.js (FINAL VERSION - ALL TOPICS ENABLED) ===
+// === trading-logic.js (UPDATED WITH FACEBOOK POST LOGIC & COMMAND) ===
 // =================================================================
 
-// --- 0. CONFIGURATION (Non-Secret IDs) ---
+// --- 0. CONFIGURATION (Keys සහ IDs සෘජුවම කේතයේ) ---
+// ⚠️ ඔබගේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
+
 const CONFIG = {
     // 🛑 ඔබේ Bot Token එක
     TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
     
     // 🛑 ඔබේ Channel/Group Chat ID එක (Lifetime Post එක යැවිය යුතු ස්ථානය)
-    TELEGRAM_CHAT_ID: "-1002947156921", 
+    TELEGRAM_CHAT_ID: "-1002947156921", // ඔබ ලබා දුන් Channel ID එක
     
     // 🛑 ඔබේ පුද්ගලික Chat ID එක (Owner ගේ Private ID එක - String ලෙස තබන්න)
-    OWNER_CHAT_ID: "1901997764", 
+    OWNER_CHAT_ID: "1901997764", // ඔබේ Owner ID එක මෙය නොවේ නම් වෙනස් කරන්න
+    
+    // 🛑 ඔබේ අලුත්ම Gemini API Key එක
+    GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
     
     // Telegram API Endpoint Base URL එක (Token එකෙන් සෑදී ඇත)
     TELEGRAM_API_BASE: `https://api.telegram.org/bot5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q`,
@@ -23,13 +28,8 @@ const CONFIG = {
 // --- 1. CORE AI FUNCTIONS ---
 
 async function generateScheduledContent(env) { 
-    // 🔑 Key එක env object එකෙන් ලබා ගනී (Secret භාවිතය)
-    const GEMINI_API_KEY = env.GEMINI_API_KEY; 
-    if (!GEMINI_API_KEY) {
-        console.error("GEMINI_API_KEY is not set in Cloudflare Secrets. Cannot generate content.");
-        return null;
-    }
-    
+    // Fix: Hardcoded key එක භාවිතා කරයි.
+    const GEMINI_API_KEY = CONFIG.GEMINI_API_KEY; 
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     
     // 1. KV එකෙන් කලින් Post කළ Topics ලැයිස්තුව ලබා ගැනීම.
@@ -69,7 +69,7 @@ async function generateScheduledContent(env) {
         
         if (content) {
             // 3. Topic එක අලුතින් Post කළ Topics ලැයිස්තුවට එකතු කිරීම
-            const newTopicMatch = content.match(/\*([^*]+)\*/); 
+            const newTopicMatch = content.match(/\*([^*]+)\*/); // පළමු බෝල්ඩ් කර ඇති මාතෘකාව ලබා ගනී
             const newTopic = newTopicMatch ? newTopicMatch[1].trim() : "Untitled Post";
             
             coveredTopics.push(newTopic);
@@ -86,32 +86,23 @@ async function generateScheduledContent(env) {
         return null;
         
     } catch (e) {
-        console.error("Error generating scheduled content:", e);
         return null;
     }
 }
 
-async function generateReplyContent(env, userQuestion) {
-    // 🔑 Key එක env object එකෙන් ලබා ගනී (Secret භාවිතය)
-    const GEMINI_API_KEY = env.GEMINI_API_KEY; 
-    if (!GEMINI_API_KEY) {
-        return "🛑 *API Error:* Bot සකසා නොමැත. (Missing Gemini Key)";
-    }
-    
-    const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-    
-    // 🛑 System Prompt එක වෙනස් කර ඇත - ඕනෑම ප්‍රශ්නයකට පිළිතුරු දීමට
+async function generateReplyContent(userQuestion) {
+    const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     const systemPrompt = `
-        You are a helpful and detailed AI assistant. A user has asked you a question about any subject.
+        You are a detailed, expert financial and trading assistant. A user has asked you a specific question or a short trading concept (e.g., RSI, Order Flow, Slippage).
         
         Your task is to:
         1. Use the 'google_search' tool to get the most accurate and educational information for the user's question.
-        2. Generate a **DETAILED, EDUCATIONAL RESPONSE**. The response should be well-structured, ideally around 5-7 paragraphs, covering the concept fully (Definition, Importance/Context, Examples, and Summary).
-        3. Use **clear SINHALA language (සිංහල අක්ෂර / Unicode)** as the primary language, but mix in necessary English terms where appropriate for technical subjects.
+        2. Generate a **DETAILED, EDUCATIONAL RESPONSE**. The response must be **5 PARAGRAPHS** long to cover the concept fully (Definition, Importance, How to Use, Examples, and Summary).
+        3. Use **clear SINHALA language (සිංහල අක්ෂර / Unicode)** mixed with necessary English trading terms throughout the response.
         4. The response must be well-formatted using Telegram's **Markdown** (bolding key terms, using lists, and emojis).
-        5. The first line of the response MUST be a clear title based on the question (e.g., "*Solar System එක මොකද්ද?*").
+        5. The first line of the response MUST be a clear title based on the question (e.g., "*Order Flow Concept එක මොකද්ද?*").
 
-        Your final output must contain ONLY the content of the response.
+        Your final output must contain ONLY the content of the response. DO NOT include any English wrappers.
     `;
     
     try {
@@ -128,12 +119,40 @@ async function generateReplyContent(env, userQuestion) {
         const data = await response.json();
         return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "මට එම ප්‍රශ්නයට පිළිතුරු දීමට නොහැකි විය. කරුණාකර නැවත උත්සාහ කරන්න. (Content Missing)";
     } catch (e) {
-        console.error("Error generating reply content:", e);
         return "මට එම ප්‍රශ්නයට පිළිතුරු දීමට නොහැකි විය. (Exception)";
     }
 }
 
-// ❌ validateTopic function එක සම්පූර්ණයෙන්ම ඉවත් කර ඇත. ❌
+async function validateTopic(userQuestion) {
+    const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
+    
+    const systemPrompt = `
+        You are an AI classifier. Your task is to determine if the user's query is strictly related to **Trading, Finance, Investing, Cryptocurrency, Forex, or the Stock Market**.
+        
+        If the query is directly related to any of these financial topics, respond ONLY with the word "YES".
+        If the query is about any other subject (general knowledge, politics, sports, entertainment, personal advice, etc.), respond ONLY with the word "NO".
+    `;
+    
+    try {
+        const response = await fetch(GEMINI_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ role: "user", parts: [{ text: userQuestion }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: { temperature: 0.1 } 
+            }),
+        });
+
+        const data = await response.json();
+        const result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase();
+        
+        return result === 'YES';
+        
+    } catch (e) {
+        return true; 
+    }
+}
 
 
 // --- 2. CORE TELEGRAM FUNCTIONS ---
@@ -155,7 +174,7 @@ async function sendTypingAction(chatId) {
     }
 }
 
-// Owner වෙත Message යැවීම සඳහා
+// Owner වෙත Message යැවීම සඳහා (Callback Query වෙතින් ලැබෙන)
 async function sendTelegramReplyToOwner(text, keyboard = null) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
     try {
@@ -210,11 +229,13 @@ async function sendTelegramMessage(caption) {
 
 // --- New Function: Facebook/Instagram Post ---
 async function sendFacebookPost(env, caption) {
-    // 🔑 Secrets env object එකෙන් ලබා ගනී
+    // 🔑 Secrets env object එකෙන් ලබා ගනී (CONFIG එකේ නැත, අනිවාර්යයෙන්ම Secrets වලින් තිබිය යුතුය)
     const FACEBOOK_PAGE_ID = env.FACEBOOK_PAGE_ID;
     const FACEBOOK_ACCESS_TOKEN = env.FACEBOOK_ACCESS_TOKEN;
     
     if (!FACEBOOK_PAGE_ID || !FACEBOOK_ACCESS_TOKEN) {
+        // Secrets නැතිනම් Owner ට දැනුම් දී false return කරන්න
+        await sendTelegramReplyToOwner("⚠️ *Facebook Secrets Missing:* FACEBOOK_PAGE_ID or FACEBOOK_ACCESS_TOKEN Cloudflare Secrets වල සකසා නැත. Facebook Post එක යැවීම අසාර්ථකයි.", null);
         console.error("Facebook Secrets (PAGE_ID or ACCESS_TOKEN) are not set in Cloudflare env.");
         return false;
     }
@@ -229,7 +250,8 @@ async function sendFacebookPost(env, caption) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                message: caption,
+                // Facebook සාමාන්‍යයෙන් Telegram Markdown (e.g., *bold*) වලට සහය නොදක්වයි. එහෙත් Message එක ලෙස යවයි.
+                message: caption, 
                 access_token: FACEBOOK_ACCESS_TOKEN,
             }),
         });
@@ -241,6 +263,7 @@ async function sendFacebookPost(env, caption) {
             return true;
         } else {
             console.error("Facebook/Instagram Post Failed:", data);
+            await sendTelegramReplyToOwner(`❌ *Facebook Post Failed:* \n\nFacebook API Error: \`${JSON.stringify(data.error)}\``, null);
             return false;
         }
     } catch (e) {
@@ -552,7 +575,7 @@ async function sendInitialCountPost(env, ownerChatId) {
 
 async function handleWebhook(request, env) {
     try {
-        const update = await request.json(); 
+        const update = await request.json();
         
         if (update && update.callback_query) {
             return handleCallbackQuery(update.callback_query, env);
@@ -571,9 +594,36 @@ async function handleWebhook(request, env) {
 
             // --- NEW: Owner Command to Send Initial Count Post ---
             if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/send_count_post')) {
+                // Fix: Owner Chat ID එක යැවීම
                 const result = await sendInitialCountPost(env, chatId); 
                 await sendTelegramReply(chatId, result.message, messageId);
                 return new Response('Count post command processed', { status: 200 });
+            }
+
+            // --- NEW: Owner Command to Post to Facebook Manually ---
+            if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/post_facebook_manual')) {
+                const initialMessageId = await sendTelegramReply(chatId, "⏳ *Facebook Post එක සඳහා Content Generate කරමින්...*", messageId);
+                
+                // Content Generation
+                const postContent = await generateScheduledContent(env); 
+                
+                if (postContent) {
+                    await editTelegramMessage(chatId, initialMessageId, "🌐 *Content Generation සාර්ථකයි. Facebook වෙත යවමින්...*");
+                    
+                    // Facebook Post
+                    const fbSuccess = await sendFacebookPost(env, postContent);
+                    
+                    if (fbSuccess) {
+                        await editTelegramMessage(chatId, initialMessageId, "✅ *Facebook Post සාර්ථකයි!* \n\nඔබගේ Content එක Facebook වෙත යවන ලදී.");
+                    } else {
+                         // Error message is sent inside sendFacebookPost via sendTelegramReplyToOwner.
+                        await editTelegramMessage(chatId, initialMessageId, "❌ *Facebook Post අසාර්ථකයි!* \n\n(විස්තර Owner ගේ Private Chat එකේ බලන්න).");
+                    }
+                } else {
+                    await editTelegramMessage(chatId, initialMessageId, "❌ *Content Generation අසාර්ථකයි.* \n\n(Check logs - Check GEMINI_API_KEY).");
+                }
+                
+                return new Response('Manual Facebook Post command processed', { status: 200 });
             }
 
 
@@ -604,65 +654,74 @@ async function handleWebhook(request, env) {
                 if (command === '/start') {
                     await updateAndEditUserCount(env, userId);
                     
-                    const welcomeMessage = "👋 *Welcome to the General Assistant Bot!* \n\nදැන් මට ඕනෑම ප්‍රශ්නයකට (Trading, Science, History, etc.) පිළිතුරු දිය හැක. \n\n*Limit:* දවසකට *ප්‍රශ්න 5* කට සීමා කර ඇත. (Owner ට Unlimited). \n\nඋත්සාහ කරන්න: 'Solar System එක මොකද්ද?' වගේ ප්‍රශ්නයක් අහන්න.";
+                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
                     await sendTelegramReply(chatId, welcomeMessage, messageId);
 
                 } else if (command === '/help') {
-                    const helpMessage = "👋 *Welcome to the General Assistant Bot!* \n\nමම Trading, Science, History, හෝ වෙනත් ඕනෑම මාතෘකාවක් සම්බන්ධයෙන් ඔබට උපකාර කිරීමට සූදානම්. \n\n*Limit:* දවසකට *ප්‍රශ්න 5* කට සීමා කර ඇත. (Owner ට Unlimited).";
-                    await sendTelegramReply(chatId, helpMessage, messageId);
+                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
+                    await sendTelegramReply(chatId, welcomeMessage, messageId);
                 }
                 return new Response('Command processed', { status: 200 });
             }
 
-            // --- GENERAL QUESTION LOGIC (NO TRADING VALIDATION) ---
+            // --- TRADING QUESTION LOGIC (FIXED: Now handles short terms too!) ---
             
-            // 1. 🛑 Rate Limit Check
-            const usageResult = await checkAndIncrementUsage(env, chatId);
+            // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව 
+            const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
+            const isTradingTopic = await validateTopic(text); 
             
-            // 2. 🚦 Status Message - ආරම්භක පණිවිඩය
-            const initialMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය සකස් කරමින්...* (Checking limit)", messageId);
-            
-            if (!usageResult.allowed) {
-                // Rate Limit ඉක්මවා ඇත්නම්
-                const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **ප්‍රශ්න 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Owner ge Approval one nam, Request karanna!*`;
+            if (isTradingTopic) {
                 
-                // KV එකේ User Request තොරතුරු ගබඩා කිරීම
-                const requestId = `REQ_${generateRandomId()}`;
-                const requestData = {
-                    userChatId: chatId,
-                    userMessageId: initialMessageId, 
-                    targetUserId: userId,
-                    userFirstName: userFirstName,
-                    userName: userName
-                };
-                await env.POST_STATUS_KV.put(`UNLIMIT_REQUEST_${requestId}`, JSON.stringify(requestData), { expirationTtl: 86400 });
+                // 2. 🛑 Rate Limit Check
+                const usageResult = await checkAndIncrementUsage(env, chatId);
+                
+                if (!usageResult.allowed) {
+                    // Rate Limit ඉක්මවා ඇත්නම්
+                    const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Owner ge Approval one nam, Request karanna!*`;
+                    
+                    // KV එකේ User Request තොරතුරු ගබඩා කිරීම
+                    const requestId = `REQ_${generateRandomId()}`;
+                    const requestData = {
+                        userChatId: chatId,
+                        userMessageId: validationMessageId, 
+                        targetUserId: userId,
+                        userFirstName: userFirstName,
+                        userName: userName
+                    };
+                    // Request එක පැය 24ක් සඳහා ගබඩා කිරීම
+                    await env.POST_STATUS_KV.put(`UNLIMIT_REQUEST_${requestId}`, JSON.stringify(requestData), { expirationTtl: 86400 });
 
-                const keyboard = [
-                    [{ text: "👑 Request Owner Approval", callback_data: `REQUEST_UNLIMIT_${requestId}` }]
-                ];
+                    // Button එකට යවන්නේ KV Key එක පමණයි
+                    const keyboard = [
+                        [{ text: "👑 Request Owner Approval", callback_data: `REQUEST_UNLIMIT_${requestId}` }]
+                    ];
+                    
+                    await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
+                    return new Response('Rate limited with inline request button', { status: 200 });
+                }
                 
-                await editTelegramMessageWithKeyboard(chatId, initialMessageId, limitMessage, keyboard);
-                return new Response('Rate limited with inline request button', { status: 200 });
+                // 3. 🌐 Searching Status 
+                await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
+                
+                // 4. 🧠 Generation Status 
+                await sendTypingAction(chatId); 
+                await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
+                
+                // 5. 🔗 Final Content Generation
+                const replyText = await generateReplyContent(text);
+                
+                // 6. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
+                await editTelegramMessage(chatId, validationMessageId, replyText);
+                
+            } else {
+                // Not a Trading Question - Guardrail Message 
+                const guardrailMessage = `⚠️ *Sorry! Mama program karala thiyenne **Trading, Finance, nathnam Crypto** related questions walata witharak answer karanna.* \n\n*Oyage Chat ID eka:* \`${chatId}\`\n\nPlease ask karanna: 'What is RSI?' wage ekak. *Anith ewa mata denuma naha.* 😔`;
+                await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
             }
             
-            // 3. 🌐 Searching Status 
-            await editTelegramMessage(chatId, initialMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
-            
-            // 4. 🧠 Generation Status 
-            await sendTypingAction(chatId); 
-            await editTelegramMessage(chatId, initialMessageId, "✍️ *විස්තරාත්මක පිළිතුරක් සකස් කරමින්...* (Generating detailed reply)");
-            
-            // 5. 🔗 Final Content Generation
-            const replyText = await generateReplyContent(env, text);
-            
-            // 6. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
-            await editTelegramMessage(chatId, initialMessageId, replyText);
-            
-            return new Response('General question processed', { status: 200 });
         }
     } catch (e) {
-        console.error("Error processing webhook:", e.message);
-        return new Response(`Error processing webhook: ${e.message}`, { status: 500 });
+        console.error("Error processing webhook:", e);
     }
     
     return new Response('OK', { status: 200 });
@@ -838,26 +897,30 @@ export default {
         const postContent = await generateScheduledContent(env); 
         
         if (postContent) {
-            // 2. Channel එකට Post එක යැවීම (CONFIG.TELEGRAM_CHAT_ID ට)
-            const success = await sendTelegramMessage(postContent); 
             
-            // 🛑 Facebook/Instagram Post එක යැවීම
-            const fbSuccess = await sendFacebookPost(env, postContent);
+            let postStatus = [];
             
-            // 3. KV එකේ Post Status එක ගබඩා කිරීම
+            // 2. 🌐 Telegram Channel එකට Post කිරීම
+            const tgSuccess = await sendTelegramMessage(postContent); 
+            postStatus.push(tgSuccess ? '✅ Telegram: Success' : '❌ Telegram: Failed');
+            
+            // 3. 🌐 Facebook Page/Group එකට Post කිරීම
+            // sendFacebookPost function එක තුළ Secrets නැතිනම් Owner ට දැනුම් දීම සහ error handling සිදු වේ.
+            const fbSuccess = await sendFacebookPost(env, postContent); 
+            postStatus.push(fbSuccess ? '✅ Facebook: Success' : '❌ Facebook: Failed');
+
+
+            // 4. KV එකේ Post Status එක ගබඩා කිරීම
             const today = new Date().toISOString().slice(0, 10);
-            if (success) {
+            if (tgSuccess) {
                 await env.POST_STATUS_KV.put(`trading_post_posted:${today}`, "POSTED");
             } else {
                 await env.POST_STATUS_KV.put(`trading_post_posted:${today}`, "FAILED");
-                // Owner ට Fail වීමට හේතුව දැනුම් දීම (විකල්ප)
-                await sendTelegramReplyToOwner(`❌ Scheduled Daily Post එක අද දින (${today}) යැවීම අසාර්ථක විය. (Check logs)`);
             }
-
-            // Facebook Post Failed නම්, Owner ට දැනුම් දෙන්න.
-            if (!fbSuccess) {
-                 await sendTelegramReplyToOwner(`⚠️ Scheduled Daily Post එක Facebook/Instagram වෙත යැවීම අසාර්ථක විය. (Check logs)`);
-            }
+            
+            // 5. Owner ට Final Status Message එක යැවීම
+            const finalStatusMessage = `*⏰ Scheduled Daily Post Status (${today})*\n\n${postStatus.join('\n')}`;
+            await sendTelegramReplyToOwner(finalStatusMessage, null);
         }
     },
 
@@ -869,20 +932,23 @@ export default {
             try {
                  const postContent = await generateScheduledContent(env);
                  if (postContent) {
-                    const success = await sendTelegramMessage(postContent); 
                     
-                    // 🛑 Facebook Post එක යැවීම
-                    const fbSuccess = await sendFacebookPost(env, postContent); 
-                    
-                    let statusMessage = '✅ Manual Daily Post Triggered Successfully (Telegram';
-                    statusMessage += fbSuccess ? ' and Facebook).' : ' but Facebook Post Failed).';
+                    let statusMessages = [];
 
-                    if (success) {
-                        return new Response(statusMessage, { status: 200 });
-                    }
-                    return new Response('❌ Manual Daily Post Failed to Send to Telegram. (Check logs)', { status: 500 });
+                    // Telegram Post
+                    const tgSuccess = await sendTelegramMessage(postContent); 
+                    statusMessages.push(`Telegram Post: ${tgSuccess ? '✅ Success' : '❌ Failed'}`);
+                    
+                    // Facebook Post
+                    const fbSuccess = await sendFacebookPost(env, postContent);
+                    statusMessages.push(`Facebook Post: ${fbSuccess ? '✅ Success' : '❌ Failed'}`);
+                    
+                    const responseStatus = tgSuccess || fbSuccess ? 200 : 500;
+                    const responseText = `*Manual Post Trigger Result:*\n\n${statusMessages.join('\n')}`;
+                    
+                    return new Response(responseText, { status: responseStatus, headers: { 'Content-Type': 'text/markdown' } });
                  }
-                 return new Response('❌ Manual Daily Post Failed: Content Generation Failed. (Check logs - Check GEMINI_API_KEY Secret!)', { status: 500 });
+                 return new Response('❌ Manual Daily Post Failed: Content Generation Failed. (Check logs)', { status: 500 });
             } catch (e) {
                  return new Response(`Error in Manual Trigger: ${e.message}`, { status: 500 });
             }
